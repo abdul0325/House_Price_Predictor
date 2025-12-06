@@ -1,6 +1,6 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
@@ -36,14 +36,11 @@ preprocessor = ColumnTransformer([
 # Pipeline
 pipeline = Pipeline([
     ("preprocessor", preprocessor),
-    ("regressor", RandomForestRegressor(
-        n_estimators=500,
-        max_depth=10,
-        min_samples_split=5,
-        min_samples_leaf=4,
-        random_state=42,
-        n_jobs=-1
-    ))
+    ("regressor", GradientBoostingRegressor(
+    n_estimators=500,
+    learning_rate=0.05,
+    max_depth=5
+))
 ])
 
 # Train
@@ -51,4 +48,4 @@ pipeline.fit(X, y)
 
 # Save pipeline
 joblib.dump(pipeline, "house_price_pipeline.joblib")
-print("✅ Pipeline saved successfully!")
+print("Pipeline saved successfully!")

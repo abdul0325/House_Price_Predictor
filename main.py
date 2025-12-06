@@ -1,103 +1,91 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, FunctionTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.ensemble import GradientBoostingRegressor
 
-# ----------------------------
-# STEP 1: Load Dataset
-# ----------------------------
+# Load Dataset
 df = pd.read_csv("housing.csv")
 
-# ----------------------------
-# STEP 2: Feature Engineering
-# ----------------------------
+# feature engineering
 df["HouseAge"] = 2025 - df["YearBuilt"]
 df["BathPerBed"] = df["Bathrooms"] / df["Bedrooms"]
+df["SqFtPerRoom"] = df["SquareFeet"] / (df["Bedrooms"] + df["Bathrooms"])
 
-# ----------------------------
-# STEP 3: Define Features & Target
-# ----------------------------
-features = ["SquareFeet", "Bedrooms", "Bathrooms", "Neighborhood", "HouseAge", "BathPerBed"]
-target = "Price"
+# remove outliers
+q_low = df["Price"].quantile(0.01)
+q_high = df["Price"].quantile(0.99)
+df = df[(df["Price"] >= q_low) & (df["Price"] <= q_high)]
 
+# transform price
+df["LogPrice"] = np.log1p(df["Price"])
+
+# Features & Target
+features = ["SquareFeet", "Bedrooms", "Bathrooms", "Neighborhood", "HouseAge", "BathPerBed", "SqFtPerRoom"]
 X = df[features]
-y = df[target]
+y = df["LogPrice"]  # LOG TARGET
 
-# ----------------------------
-# STEP 4: Train-Test Split
-# ----------------------------
+# Train/Test Split
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-# ----------------------------
-# STEP 5: Preprocessing
-# ----------------------------
-numeric_features = ["SquareFeet", "Bedrooms", "Bathrooms", "HouseAge", "BathPerBed"]
-numeric_transformer = Pipeline(steps=[
-    ('imputer', SimpleImputer(strategy='median'))
+# normalizing
+numeric_features = ["SquareFeet", "Bedrooms", "Bathrooms", "HouseAge", "BathPerBed", "SqFtPerRoom"]
+numeric_transformer = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("scaler", StandardScaler())
 ])
 
 categorical_features = ["Neighborhood"]
-categorical_transformer = Pipeline(steps=[
-    ('imputer', SimpleImputer(strategy='most_frequent')),
-    ('onehot', OneHotEncoder(handle_unknown='ignore'))
+categorical_transformer = Pipeline([
+    ("imputer", SimpleImputer(strategy="most_frequent")),
+    ("onehot", OneHotEncoder(handle_unknown="ignore"))
 ])
 
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('num', numeric_transformer, numeric_features),
-        ('cat', categorical_transformer, categorical_features)
-    ]
+preprocessor = ColumnTransformer([
+    ("num", numeric_transformer, numeric_features),
+    ("cat", categorical_transformer, categorical_features)
+])
+
+# model 
+model = GradientBoostingRegressor()
+
+param_grid = {
+    "n_estimators": [300, 500],
+    "learning_rate": [0.03, 0.05],
+    "max_depth": [3, 5],
+    "subsample": [0.8, 1.0]
+}
+
+grid = GridSearchCV(
+    model,
+    param_grid,
+    cv=5,
+    scoring="r2",
+    n_jobs=-1
 )
 
-# ----------------------------
-# STEP 6: Build Pipeline with Random Forest
-# ----------------------------
-pipeline = Pipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('regressor', RandomForestRegressor(
-        n_estimators=500,
-        max_depth=10,
-        min_samples_split=5,
-        min_samples_leaf=4,
-        random_state=42,
-        n_jobs=-1
-    ))
+pipeline = Pipeline([
+    ("preprocessor", preprocessor),
+    ("regressor", grid)
 ])
 
-# ----------------------------
-# STEP 7: Train Model
-# ----------------------------
+# TRAIN
 pipeline.fit(X_train, y_train)
 
-# ----------------------------
-# STEP 8: Evaluate Model
-# ----------------------------
-y_pred = pipeline.predict(X_test)
-mae = mean_absolute_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
+# EVALUATE
+y_pred_log = pipeline.predict(X_test)
+y_test_real = np.expm1(y_test)
+y_pred_real = np.expm1(y_pred_log)
 
-print("\n✅ RANDOM FOREST PIPELINE TRAINED!")
-print("📉 Mean Absolute Error:", int(mae))
-print("📊 R2 Score:", round(r2, 3))
+mae = mean_absolute_error(y_test_real, y_pred_real)
+r2 = r2_score(y_test_real, y_pred_real)
 
-# ----------------------------
-# STEP 9: Predict New House
-# ----------------------------
-new_house = pd.DataFrame([{
-    "SquareFeet": 1800,
-    "Bedrooms": 3,
-    "Bathrooms": 2,
-    "Neighborhood": "Neighborhood1",  # replace with actual neighborhood
-    "HouseAge": 10,
-    "BathPerBed": 2/3
-}])
-
-predicted_price = pipeline.predict(new_house)
-print("\n🏡 Predicted House Price:", int(predicted_price[0]))
+print("\nHIGH ACCURACY PIPELINE TRAINED")
+print("MAE:", int(mae))
+print("R2:", round(r2, 3))
